@@ -28,8 +28,21 @@ class OllamaRunner:
         return {"raw": resp, "text": text}
 
     def _http_generate(self, prompt: str, max_tokens: int = 256, timeout: int = 60) -> Any:
-        url = f"{self.host}/api/generate"
-        payload = {"model": self.model, "prompt": prompt, "max_tokens": max_tokens}
+        # Use /api/chat (not the raw /api/generate completion endpoint) so the
+        # model gets its proper instruct chat template. Without it, this
+        # instruct-tuned model treats the prompt as free-form text to continue
+        # rather than a question to answer, and occasionally emits an
+        # immediate stop token (empty response).
+        url = f"{self.host}/api/chat"
+        # Ollama ignores a top-level "max_tokens" field; the token limit must be
+        # passed as "num_predict" inside "options". Also disable streaming so we
+        # get a single JSON response instead of a long series of NDJSON chunks.
+        payload = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+            "options": {"num_predict": max_tokens},
+        }
         r = requests.post(url, json=payload, timeout=timeout)
         r.raise_for_status()
         try:
@@ -60,7 +73,16 @@ class OllamaRunner:
                 return str(resp)
 
         # Common places to look for text
-        # 1) 'text' key
+        # 1) 'message.content' (ollama's /api/chat result field)
+        message = resp.get("message")
+        if isinstance(message, dict) and isinstance(message.get("content"), str):
+            return message["content"]
+
+        # 2) 'response' key (ollama's /api/generate result field)
+        if "response" in resp and isinstance(resp["response"], str):
+            return resp["response"]
+
+        # 3) 'text' key
         if "text" in resp and isinstance(resp["text"], str):
             return resp["text"]
 
