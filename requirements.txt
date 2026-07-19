@@ -1,2 +1,6 @@
 ollama==0.6.2
 requests>=2.28
+langchain-core>=0.3
+langchain-ollama>=0.2
+pydantic>=2
+pytest>=8
